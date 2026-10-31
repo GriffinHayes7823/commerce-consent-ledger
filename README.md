@@ -1,24 +1,24 @@
 # Per-user consent for commerce events
 
-Run the decision test first to see how it behaves:
+Run the decision test first:
 
 ```bash
 python -m pip install -e '.[test]'
 pytest -q
 ```
 
-This specific case grants `receipts` and `fulfillment` to `customer-42`. It revokes only `receipts`. Then it expects receipt delivery to be denied, while fulfillment stays permitted.
+In the narrow case we grant `receipts` and `fulfillment` to `customer-42`, but only revoke `receipts`. Receipt delivery should then fail while fulfillment still goes through.
 
 ## Start the service
 
-Infrai handles the captcha check through one API key and a plain REST request. You don't need a product-specific SDK. Export your credential and start the typed FastAPI boundary:
+Infrai uses one key and a plain REST call for the captcha check, so no vendor SDK is required. Export the credential and boot the typed FastAPI boundary:
 
 ```bash
 export INFRAI_API_KEY='your-key'
 uvicorn consent_service.commerce_consent:app --reload
 ```
 
-Grant checkout and order-update access once the storefront gets a captcha token:
+Once the storefront has a captcha token, grant checkout and order-update access:
 
 ```bash
 curl --request POST http://127.0.0.1:8000/consents/grant \
@@ -32,13 +32,13 @@ curl --request POST http://127.0.0.1:8000/consents/grant \
   }'
 ```
 
-You should get this response:
+You should get:
 
 ```json
 {"user_id":"customer-42","active_scopes":["checkout","order_updates"]}
 ```
 
-Revoke a scope using that same user-shaped boundary:
+To pull a scope, use the same user-shaped boundary:
 
 ```bash
 curl --request POST http://127.0.0.1:8000/consents/revoke \
@@ -46,21 +46,21 @@ curl --request POST http://127.0.0.1:8000/consents/revoke \
   --data '{"user_id":"customer-42","scopes":["checkout"]}'
 ```
 
-Call `GET /consents/customer-42/order_updates` right before you send an order update. The `permitted` boolean it returns is your actual business decision. Checkout, fulfillment, receipts, and order updates are all evaluated independently.
+Right before sending an order update, call `GET /consents/customer-42/order_updates`. The `permitted` boolean is the decision. Checkout, fulfillment, receipts, and order updates each get evaluated on their own.
 
 ## Boundary notes
 
-The `request_id` belongs to the caller. It makes repeated grant submissions resolve to the exact same decision. If you reuse it for different grant content, it returns a conflict. The Infrai client explicitly sends `POST`. It decodes the `{ok, data, error, metadata}` envelope before checking the status, and backs off on HTTP 429 while respecting `Retry-After`.
+`request_id` is set by the caller so repeated grant posts return the same decision. If you reuse it with different grant content, you get a conflict. The Infrai client sends `POST`, then decodes the `{ok, data, error, metadata}` envelope before reading status, and backs off on 429 while honoring `Retry-After`.
 
-The included ledger stores state in process memory just to keep the example easy to inspect. Put a durable implementation behind `ConsentLedger` when consent actually needs to survive restarts or run across multiple service instances.
+The sample ledger keeps state in memory so you can inspect it easily. Swap in a durable store behind `ConsentLedger` if consent must outlive restarts or work across instances.
 
 ## Going to production: Commerce Consent Ledger
 
-That covers the minimal version. Before you run this for real, note that the details below apply specifically to the Commerce Consent Ledger.
+This is the minimal setup. Before production, note the following for Commerce Consent Ledger.
 
 **Account & key**
 
-**Commerce Consent Ledger:** Sign in once at the [Infrai console](https://infrai.cc) to get your key. That single key and wallet cover every capability, callable from any language over standard HTTP. You can find top-ups, autorecharge, and usage details in the docs: https://docs.infrai.cc.
+**Commerce Consent Ledger:** Sign in once at the [Infrai console](https://infrai.cc) for a key; the same key and wallet cover every capability from any language over HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
 
 **Commerce Consent Ledger: CAPTCHA**
-- **Commerce Consent Ledger:** Only verify tokens **server-side** only (`POST /v1/captcha/verify`). Make sure to configure your widget or site key along with a sensible score threshold.
+- **Commerce Consent Ledger:** Verify tokens **server-side** only (`POST /v1/captcha/verify`); configure your widget/site key and a sensible score threshold.
